@@ -34,9 +34,9 @@ def _load_vectorstore():
         from src.vector_store import VectorStore, get_global_model_and_tokenizer
         get_global_model_and_tokenizer()
         vectorstore = VectorStore().load_index()
-        print("✅ Vector store loaded")
+        print("[OK] Vector store loaded")
     except Exception as e:
-        print(f"❌ Vector store failed: {e}")
+        print(f"[ERROR] Vector store failed: {e}")
         vectorstore = None
     return vectorstore
 
@@ -45,7 +45,7 @@ def _load_vectorstore():
 async def lifespan(app: FastAPI):
     global session_manager
     session_manager = SessionManager(timeout_minutes=30)
-    print("✅ Session manager ready")
+    print("[OK] Session manager ready")
     yield
 
 
@@ -100,7 +100,8 @@ def create_chatbot():
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Juriscope API is running", "version": "1.0.0"}
+    from src.config import config
+    return {"status": "ok", "message": "Juriscope API is running", "version": "1.0.0", "model": config.GROQ_MODEL}
 
 
 @app.post("/chat", response_model=ChatResponse)

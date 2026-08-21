@@ -14,6 +14,9 @@ langchain-text-splitters>=1.0.0
 langchain-pinecone>=0.2.0
 
 # Vector DB
+# NOTE: pinecone 7.x refuses to import if the old `pinecone-plugin-inference`
+# package is still present. If you hit DeprecatedPluginError, run:
+#   pip uninstall -y pinecone-plugin-inference
 pinecone>=7.0.0
 
 # Embeddings

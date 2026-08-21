@@ -132,6 +132,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState(null)
   const [backendOnline, setBackendOnline] = useState(false)
+  const [modelName, setModelName] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [indexedDocs, setIndexedDocs] = useState(['lawsuit.txt'])
   const bottomRef = useRef(null)
@@ -142,6 +143,10 @@ export default function App() {
       try {
         const r = await fetch('/api/health')
         setBackendOnline(r.ok)
+        if (r.ok) {
+          const data = await r.json()
+          if (data.model) setModelName(data.model)
+        }
       } catch {
         setBackendOnline(false)
       }
@@ -265,7 +270,7 @@ export default function App() {
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Stack</p>
             <div className="space-y-1.5 text-xs text-gray-500">
-              {[['🧠', 'Llama 3.3 · Groq'], ['📦', 'Pinecone Vector DB'], ['⚡', 'FastAPI'], ['🔗', 'LangChain']].map(([icon, label]) => (
+              {[['🧠', `${modelName || 'Groq LLM'} · Groq`], ['📦', 'Pinecone Vector DB'], ['⚡', 'FastAPI'], ['🔗', 'LangChain']].map(([icon, label]) => (
                 <div key={label} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg">
                   <span>{icon}</span><span>{label}</span>
                 </div>
@@ -293,7 +298,7 @@ export default function App() {
                   </div>
                   <h2 className="text-xl font-bold text-gray-800">Ask a Legal Question</h2>
                   <p className="text-gray-400 text-sm mt-2 max-w-sm">
-                    Query your indexed legal documents using natural language. Powered by Llama 3.3 via Groq.
+                    Query your indexed legal documents using natural language.{modelName && ` Powered by ${modelName} via Groq.`}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-2xl">
@@ -383,7 +388,7 @@ export default function App() {
               </button>
             </div>
             <p className="text-center text-[11px] text-gray-400 mt-2">
-              Answers are grounded strictly in indexed legal documents · Powered by Llama 3.3 via Groq
+              Answers are grounded strictly in indexed legal documents{modelName && ` · Powered by ${modelName} via Groq`}
             </p>
           </div>
         </main>

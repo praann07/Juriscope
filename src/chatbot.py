@@ -28,7 +28,7 @@ class LegalDocumentAssistant:
     def __init__(self, vectorstore):
         self.llm = ChatGroq(
             api_key=config.GROQ_API_KEY,
-            model_name="llama-3.3-70b-versatile",
+            model=config.GROQ_MODEL,
             temperature=0.1,
             max_tokens=2048
         )

@@ -7,6 +7,7 @@ load_dotenv()
 @dataclass
 class Config:
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY")
     PINECONE_CLOUD: str = os.getenv("PINECONE_CLOUD", "aws")
     PINECONE_REGION: str = os.getenv("PINECONE_REGION", "us-east-1")
