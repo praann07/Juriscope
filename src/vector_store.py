@@ -75,7 +75,7 @@ class VectorStore:
                 name=self.index_name,
                 dimension=768,
                 metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+                spec=ServerlessSpec(cloud=config.PINECONE_CLOUD or "aws", region=config.PINECONE_REGION or "us-east-1")
             )
         else:
             logger.info(f"Index '{self.index_name}' already exists")

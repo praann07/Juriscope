@@ -37,6 +37,7 @@ class LegalDocumentAssistant:
             search_kwargs={"k": 6, "fetch_k": 20, "lambda_mult": 0.7}
         )
         self.chat_history = []
+        self.sources_history = []
 
     def _multi_query_retrieve(self, query: str):
         """Generate multiple query variants and merge results for better recall."""
@@ -77,18 +78,19 @@ Question: {question}"""
 
         return all_docs, standalone
 
-    def chat(self, query: str) -> str:
+    def chat(self, query: str) -> tuple[str, list[dict]]:
         if query.lower() in ["exit", "quit", "bye"]:
-            return "Thank you for using Juriscope. Goodbye!"
+            return "Thank you for using Juriscope. Goodbye!", []
         if not query.strip():
-            return "Please enter a question about the legal documents."
+            return "Please enter a question about the legal documents.", []
 
         try:
             docs, standalone = self._multi_query_retrieve(query)
 
             if not docs:
-                return "I could not find any relevant information in the indexed documents for your question."
+                return "I could not find any relevant information in the indexed documents for your question.", []
 
+            sources = self._extract_sources(docs)
             context = _format_docs(docs)
 
             history_text = ""
@@ -128,12 +130,29 @@ Context from indexed legal documents:
             if len(self.chat_history) > 20:
                 self.chat_history = self.chat_history[-20:]
 
-            return answer
+            self.sources_history.extend(sources)
+
+            return answer, sources
 
         except Exception as e:
             logger.error(f"Chat error: {e}", exc_info=True)
-            return "An error occurred while processing your question. Please try again."
+            return "An error occurred while processing your question. Please try again.", []
+
+    def _extract_sources(self, docs) -> list[dict]:
+        """Return unique source citations (deduped by filename) for the retrieved docs."""
+        unique = {}
+        for doc in docs:
+            meta = doc.metadata or {}
+            source = meta.get("source", "Unknown document")
+            if source not in unique:
+                unique[source] = {
+                    "source": source,
+                    "chunk": meta.get("chunk"),
+                    "total_chunks": meta.get("total_chunks"),
+                }
+        return [v for v in unique.values()]
 
     def reset_conversation(self):
         self.chat_history = []
+        self.sources_history = []
         return "Conversation reset. How can I help you with the legal documents?"

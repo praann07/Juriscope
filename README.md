@@ -30,9 +30,16 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### **3. Install dependencies**  
+### **2. Install dependencies**  
 ```bash
 pip install -r requirements.txt
+```
+
+### **3. Install frontend dependencies**
+```bash
+cd frontend
+npm install
+cd ..
 ```
 
 ---  
@@ -52,7 +59,7 @@ GROQ_API_KEY=your_groq_api_key
 
 ### **Local Development**  
 ```bash
-uvicorn app.main:app --reload
+uvicorn src.app:app --reload
 ```
 API will be available at **http://localhost:8000**  
 
@@ -62,12 +69,6 @@ cd frontend
 npm run dev
 ```
 The Vanguard interface will be available at **http://localhost:3000** (with automatic live proxying to FastAPI).
-
-### **Running the Legacy Streamlit Interface (Optional)**
-```bash
-streamlit run app.py
-```
-The Streamlit interface will be available at **http://localhost:8501**
 
 ---  
 
@@ -82,24 +83,29 @@ The Streamlit interface will be available at **http://localhost:8501**
     ```json
     {
       "session_id": "abc123",
-      "query": "What are the key points of Smith v. Johnson?"
+      "text": "What are the key points of Smith v. Johnson?"
     }
     ```
   - **Response:**  
     ```json
     {
       "response": "The key points are breach of contract and negligence...",
-      "sources": ["case_smith_v_johnson.pdf"]
+      "session_id": "abc123",
+      "sources": [{"source": "case_smith_v_johnson.pdf", "chunk": 2, "total_chunks": 10}]
     }
     ```
 
-### **3. Session Management**  
+### **3. Document Upload**  
+- **POST `/upload`** – Upload and index a legal document (PDF or TXT, max 20MB)  
+  - **Body:** `multipart/form-data` with a `file` field
+
+### **4. Session Management**  
 - **DELETE `/session/{session_id}`** – End a legal research session  
 - **POST `/session/reset/{session_id}`** – Reset a session's state  
 - **GET `/sessions/count`** – Get the total number of active sessions  
 
-### **4. Retrieve Source Documents**  
-- **GET `/sources/{session_id}`** – Fetch relevant legal documents for a session  
+### **5. Retrieve Source Documents**  
+- **GET `/sources/{session_id}`** – Fetch the source documents referenced in a session  
 
 ---  
 
@@ -130,9 +136,9 @@ This RAG system supports multiple concurrent users by assigning unique `session_
    ```bash
    pip install -r requirements.txt
    ```
-2. **Start Command:**  
+2. **Start Command:**   
    ```bash
-   gunicorn app.main:app -k uvicorn.workers.UvicornWorker --workers 1 --threads 2 --timeout 120
+   gunicorn src.app:app -k uvicorn.workers.UvicornWorker --workers 1 --threads 2 --timeout 120
    ```
 3. **Environment Variables:**  
    - `PINECONE_API_KEY`  

@@ -44,6 +44,8 @@ def _load_vectorstore():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global session_manager
+    from src.config import config
+    config.validate()
     session_manager = SessionManager(timeout_minutes=30)
     print("[OK] Session manager ready")
     yield
@@ -78,6 +80,7 @@ class Query(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: str
+    sources: list[dict] = []
 
 
 def get_vectorstore():
@@ -109,8 +112,8 @@ async def chat(query: Query, request: Request, sm: SessionManager = Depends(get_
     _check_rate_limit(request.client.host)
     try:
         session_id, bot = sm.get_or_create_session(create_chatbot, query.session_id)
-        response = bot.chat(query.text)
-        return ChatResponse(response=response, session_id=session_id)
+        response, sources = bot.chat(query.text)
+        return ChatResponse(response=response, session_id=session_id, sources=sources)
     except HTTPException:
         raise
     except Exception as e:
@@ -214,7 +217,10 @@ async def get_sources(session_id: str, sm: SessionManager = Depends(get_session_
     session = sm.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return {"session_id": session_id, "document_references": []}
+    chatbot = session["chatbot"]
+    history = getattr(chatbot, "sources_history", [])
+    unique = {s["source"]: s for s in history}
+    return {"session_id": session_id, "document_references": list(unique.values())}
 
 
 if __name__ == "__main__":
