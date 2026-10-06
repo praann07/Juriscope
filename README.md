@@ -2,91 +2,127 @@
 
 Juriscope is an AI-powered legal document assistant that helps users search, retrieve, and understand legal content using a Retrieval-Augmented Generation (RAG) workflow.
 
-This project combines document processing, vector search, and conversational AI to make legal research more accessible. It is designed as a practical course project and portfolio-ready demo that shows how AI can be used for document analysis in a legal domain.
+It was built as a course project and portfolio demo showing how AI can support document analysis in the legal domain.
 
 ## Overview
 
-Juriscope uses semantic retrieval to find relevant legal passages and then passes the retrieved context to a language model to answer user questions. The system is built with FastAPI, Pinecone, LangChain, and Groq-based LLM inference.
+Users upload legal documents (PDF or TXT). The text is split into chunks, embedded, and stored in a Pinecone vector index. When a user asks a question, the most relevant chunks are retrieved and passed to a language model, which answers with citations to the source documents.
+
+The stack is FastAPI (backend), React + Vite + Tailwind (frontend), LangChain, Pinecone, and Groq-hosted LLM inference.
 
 ## Features
 
-**Legal Document Retrieval** – Uses Pinecone for fast and efficient case law retrieval.  
- **Natural Language Querying** – Allows users to search legal documents using plain English.  
- **Session-Based Handling** – Supports session-based query tracking for better user experience.  
- **FastAPI Backend** – Provides a scalable and efficient REST API.  
- **Concurrency Handling** – Manages multiple legal research sessions efficiently.  
- **Llama 3.3 via Groq Inference** – High-speed, low-latency language model inference.  
+- **Document upload and indexing** – Text-based PDF and TXT files (up to 20 MB) are chunked and indexed for search. Scanned, image-only PDFs are rejected with a clear message, since they have no text to index.
+- **Semantic retrieval** – Pinecone vector search finds the passages relevant to a question.
+- **Question answering with citations** – Answers are grounded in the retrieved passages and list their sources.
+- **Conversation sessions** – Each chat keeps its own history, which can be reset or ended.
+- **Optional login** – A username and password can protect the whole app (see [Access control](#access-control)).
+- **Rate limiting** – Per-client limits on chat and upload requests.
 
----  
+---
 
-## **Installation**  
+## Installation
 
-### **1. Create a virtual environment**  
+### 1. Create a virtual environment
 ```bash
-python -m venv venv
+python -m venv .venv
 # On Windows
-venv\Scripts\activate
+.venv\Scripts\activate
 # On macOS/Linux
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
-### **2. Install dependencies**  
+### 2. Install Python dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### **3. Install frontend dependencies**
+### 3. Install frontend dependencies
 ```bash
 cd frontend
 npm install
 cd ..
 ```
 
----  
+---
 
-## **Configuration**  
+## Configuration
 
-Create a `.env` file and add the following variables:  
+Create a `.env` file in the project root:
 ```
 PINECONE_API_KEY=your_pinecone_api_key
 INDEX_NAME=your_pinecone_index_name
 GROQ_API_KEY=your_groq_api_key
 ```
 
----  
+Optional settings:
 
-## **Running the Application**  
+| Variable | Purpose |
+|---|---|
+| `GROQ_MODEL` | Groq model to use. Defaults to `qwen/qwen3.8-27b`. |
+| `JURISCOPE_USERNAME` / `JURISCOPE_PASSWORD` | Turn on the login prompt. Both must be set. |
+| `ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API. Defaults to `http://localhost:3000,http://127.0.0.1:3000`. |
 
-### **Local Development**  
+---
+
+## Running the Application
+
+### Windows (one click)
+Double-click **`start.bat`**. It checks for Python, Node.js, and the `.env` file, installs anything missing on the first run, starts the backend and frontend, and opens the app in your browser.
+
+### Manual start
 ```bash
+# Backend (http://localhost:8000)
 uvicorn src.app:app --reload
-```
-API will be available at **http://localhost:8000**  
 
-### **Running the Juriscope Vanguard Frontend (Enterprise Web App)**  
-```bash
+# Frontend (http://localhost:3000), in a second terminal
 cd frontend
 npm run dev
 ```
-The Vanguard interface will be available at **http://localhost:3000** (with automatic live proxying to FastAPI).
+The frontend proxies API requests to the backend, so only port 3000 needs to be opened in the browser.
 
----  
+---
 
-## **API Endpoints**  
+## Access control
 
-### **1. Root Check**  
-- **GET `/`** – Health check endpoint  
+Login is off by default, so local development needs no extra setup. To require a login, set both `JURISCOPE_USERNAME` and `JURISCOPE_PASSWORD`. The browser then asks for those credentials before the web page and the API respond. The health check (`GET /api/health`) stays public.
 
-### **2. Chat with RAG**  
-- **POST `/chat`** – Query legal documents with RAG  
-  - **Body:**  
+Set these before deploying anywhere other than your own machine.
+
+---
+
+## Testing
+
+```bash
+# Backend (from the project root)
+python -m pytest
+
+# Frontend (from the frontend folder)
+npm test
+
+# Answer quality (uses the live index and Groq; writes eval/results.md)
+python eval/run_eval.py
+```
+
+The frontend tests check that every Tailwind class used in `src/` is generated in the stylesheet. The backend tests cover the login check, configuration, and serving the built frontend.
+
+---
+
+## API Endpoints
+
+### 1. Health check
+- **GET `/api/health`** – Returns API status and the active model name
+
+### 2. Chat with RAG
+- **POST `/chat`** – Ask a question about the indexed documents
+  - **Body:**
     ```json
     {
       "session_id": "abc123",
       "text": "What are the key points of Smith v. Johnson?"
     }
     ```
-  - **Response:**  
+  - **Response:**
     ```json
     {
       "response": "The key points are breach of contract and negligence...",
@@ -95,66 +131,59 @@ The Vanguard interface will be available at **http://localhost:3000** (with auto
     }
     ```
 
-### **3. Document Upload**  
-- **POST `/upload`** – Upload and index a legal document (PDF or TXT, max 20MB)  
+### 3. Document Upload
+- **POST `/upload`** – Upload and index a legal document (PDF or TXT, max 20 MB)
   - **Body:** `multipart/form-data` with a `file` field
 
-### **4. Session Management**  
-- **DELETE `/session/{session_id}`** – End a legal research session  
-- **POST `/session/reset/{session_id}`** – Reset a session's state  
-- **GET `/sessions/count`** – Get the total number of active sessions  
+### 4. Session Management
+- **DELETE `/session/{session_id}`** – End a session
+- **POST `/session/reset/{session_id}`** – Clear a session's conversation
+- **GET `/sessions/count`** – Number of active sessions
 
-### **5. Retrieve Source Documents**  
-- **GET `/sources/{session_id}`** – Fetch the source documents referenced in a session  
+### 5. Source Documents
+- **GET `/sources/{session_id}`** – Source documents referenced in a session
 
----  
+---
 
-## **Llama 3.3 via Groq Inference**  
+## Groq inference
 
-- **Inference Speed:** <15ms per query response  
-- **Token Throughput:** ~500 tokens/sec  
-- **Latency:** Low-latency response optimized for real-time queries  
-- **Memory Usage:** Efficient memory footprint compared to traditional on-device LLMs  
-- **Scalability:** Supports concurrent user queries without degradation  
+Answers are generated by a model hosted on Groq. The default is `qwen/qwen3.8-27b`; set `GROQ_MODEL` to switch to another supported model (`groq/compound`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`).
 
----  
+---
 
-## **Concurrency & Session Handling**  
+## Sessions
 
-This RAG system supports multiple concurrent users by assigning unique `session_id` values for each session.  
+Each chat uses a `session_id`, so several users can work at the same time without sharing conversation history. Sessions are kept in server memory and expire after 30 minutes of inactivity. They are not saved across server restarts.
 
-- **Sessions track user queries** to improve context and accuracy.  
-- **Each session has its own vector search scope** in Pinecone, ensuring faster retrieval of case-specific documents.  
-- **Automatic cleanup** – Sessions can be ended manually (`DELETE /session/{session_id}`) or reset (`POST /session/reset/{session_id}`).  
+Document uploads are stored in the shared Pinecone index, so every session searches the same set of documents.
 
----  
+---
 
-## **Deployment**  
+## Deployment
 
-### **Deploy on Render**  
-1. **Build Command:**  
+### Deploy on Render
+1. **Build Command:**
    ```bash
    pip install -r requirements.txt
    ```
-2. **Start Command:**   
+2. **Start Command:**
    ```bash
    gunicorn src.app:app -k uvicorn.workers.UvicornWorker --workers 1 --threads 2 --timeout 120
    ```
-3. **Environment Variables:**  
-   - `PINECONE_API_KEY`  
-   - `INDEX_NAME`  
-   - `GROQ_API_KEY`  
+3. **Environment Variables:**
+   - `PINECONE_API_KEY`
+   - `INDEX_NAME`
+   - `GROQ_API_KEY`
+   - `JURISCOPE_USERNAME` and `JURISCOPE_PASSWORD` (strongly recommended for any public deployment)
+   - `ALLOWED_ORIGINS` (set to the frontend's public URL if it is hosted separately)
 
----  
+---
 
-## **Memory Optimization**  
+## Memory
 
-- Uses **lazy model loading** to reduce memory usage.  
-- **Batch processing** to prevent memory spikes.  
-- **Garbage collection** after query execution.  
+- The embedding model and vector store are loaded on the first request rather than at startup.
 
----  
+---
 
-
-## **License**  
-This project is open-source under the **MIT License**.  
+## License
+This project is open-source under the **MIT License**.

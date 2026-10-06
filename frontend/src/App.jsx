@@ -3,6 +3,18 @@ import { Send, Plus, Trash2, Menu, X, Loader, AlertCircle, CheckCircle, FileText
 import ReactMarkdown from 'react-markdown'
 import './index.css'
 
+// Backend base URL. Empty in local dev (the Vite proxy forwards API calls to port 8000).
+// Set VITE_API_BASE to the backend's public URL when the frontend is hosted separately.
+const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+
+// Starter questions for the sample judgments in the shared index. eval/run_eval.py checks these.
+const SAMPLE_QUESTIONS = [
+  'Who were the parties in State of Uttar Pradesh v. Anurudh?',
+  'Which judges decided State of Uttar Pradesh v. Anurudh?',
+  'What was the outcome of the appeal in State of Uttar Pradesh v. Anurudh?',
+  'Can a court conduct a mini trial at the bail stage?',
+]
+
 // Landing Page Component
 function Landing({ onStart }) {
   return (
@@ -219,7 +231,7 @@ function DocumentUploadModal({ isOpen, onClose, onSuccess }) {
     form.append('file', file)
 
     try {
-      const res = await fetch('/upload', { method: 'POST', body: form })
+      const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: form })
       const data = await res.json()
 
       if (res.ok) {
@@ -374,16 +386,38 @@ function ChatMessage({ message }) {
         {message.sources && message.sources.length > 0 && (
           <div className="mt-2 pt-2 border-t border-current border-opacity-20">
             <p className="text-xs font-medium mb-1 opacity-80">Sources:</p>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {message.sources.map((source, idx) => (
-                <p key={idx} className="text-xs opacity-80">
-                  • {source.source}
-                </p>
+                <SourceItem key={idx} source={source} />
               ))}
             </div>
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// One cited passage. Click it to see the text the answer was based on.
+function SourceItem({ source }) {
+  const [open, setOpen] = useState(false)
+  const passage = source.chunk != null ? ` (passage ${Number(source.chunk) + 1})` : ''
+
+  return (
+    <div className="text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="text-left opacity-90 hover:underline"
+      >
+        {open ? '▾' : '▸'} {source.source}{passage}
+      </button>
+      {open && source.excerpt && (
+        <p className="mt-1 ml-3 p-2 rounded bg-white text-gray-800 whitespace-pre-wrap max-h-48 overflow-y-auto">
+          {source.excerpt}
+        </p>
+      )}
     </div>
   )
 }
@@ -398,7 +432,7 @@ export default function App() {
   const [backendOnline, setBackendOnline] = useState(false)
   const [modelName, setModelName] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [indexedDocs, setIndexedDocs] = useState(['lawsuit.txt', 'sorry_letter_aws.pdf'])
+  const [indexedDocs, setIndexedDocs] = useState(['SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf'])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
@@ -407,7 +441,7 @@ export default function App() {
   useEffect(() => {
     const check = async () => {
       try {
-        const r = await fetch('/')
+        const r = await fetch(`${API_BASE}/api/health`)
         if (r.ok) {
           const data = await r.json()
           setBackendOnline(true)
@@ -447,7 +481,7 @@ export default function App() {
     setLoading(true)
 
     try {
-      const res = await fetch('/chat', {
+      const res = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: query, session_id: sessionId }),
@@ -492,7 +526,7 @@ export default function App() {
 
   const handleReset = async () => {
     if (sessionId) {
-      await fetch(`/session/reset/${sessionId}`, { method: 'POST' }).catch(() => {})
+      await fetch(`${API_BASE}/session/reset/${sessionId}`, { method: 'POST' }).catch(() => {})
     }
     setMessages([])
     setSessionId(null)
@@ -648,6 +682,22 @@ export default function App() {
                 >
                   Upload Your First Document
                 </button>
+                <div className="mt-8">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Or try a sample question</p>
+                  <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+                    {SAMPLE_QUESTIONS.map((question) => (
+                      <button
+                        key={question}
+                        type="button"
+                        onClick={() => sendMessage(question)}
+                        disabled={loading || !backendOnline}
+                        className="px-3 py-1.5 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-full hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">

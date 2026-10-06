@@ -1,0 +1,19 @@
+{
+  "description": "Ground truth read from the text of State of Uttar Pradesh v. Anurudh (2026 INSC 47). 'source' is the file that must be cited. 'keywords' must all appear in the answer (case-insensitive). Refusal questions have no source; the answer must say the information is not in the documents and must not contain any 'forbidden' word.",
+  "questions": [
+    {"question": "Who were the parties in State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["Anurudh", "Uttar Pradesh"]},
+    {"question": "Which judges decided State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["Sanjay Karol", "Kotiswar Singh"]},
+    {"question": "When was the State of Uttar Pradesh v. Anurudh judgment delivered?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["January", "2026"]},
+    {"question": "What is the neutral citation of State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["2026 INSC 47"]},
+    {"question": "What was the special leave petition number in State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["10656"]},
+    {"question": "What was the outcome of the appeal in State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["allowed"]},
+    {"question": "What happened to the High Court's directions in State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["set aside"]},
+    {"question": "Will the effect of the judgment in State of Uttar Pradesh v. Anurudh be prospective?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["prospective"]},
+    {"question": "Can a court conduct a mini trial at the bail stage?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["mini trial", "bail"]},
+    {"question": "What did the Supreme Court decide about bail in State of Uttar Pradesh v. Anurudh?", "source": "SCOLR_Judgement_State-of-Uttar-Pradesh-v-Anurudh.pdf", "keywords": ["bail"]},
+
+    {"question": "What is the capital of France?", "source": null, "refusal": true, "forbidden": ["paris"]},
+    {"question": "What is the current price of Bitcoin?", "source": null, "refusal": true, "forbidden": []}
+  ],
+  "refusal_phrases": ["not available in the indexed documents", "could not find", "not in the indexed documents", "not in the documents"]
+}

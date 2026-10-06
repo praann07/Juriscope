@@ -23,6 +23,41 @@ def _format_docs(docs):
     )
 
 
+MAX_SOURCES = 8
+CONTENT_MARKER = "[CONTENT]\n"
+
+
+def extract_sources(docs) -> list[dict]:
+    """Return one citation per distinct passage, including the passage text for the UI.
+
+    Each stored chunk starts with a [CASE HEADER] block. The excerpt is the text after
+    the [CONTENT] marker, so the UI shows the passage itself and not the header copy.
+    """
+    seen = set()
+    sources = []
+    for doc in docs:
+        meta = doc.metadata or {}
+        source = meta.get("source", "Unknown document")
+        chunk = meta.get("chunk")
+        if (source, chunk) in seen:
+            continue
+        seen.add((source, chunk))
+
+        text = doc.page_content or ""
+        if CONTENT_MARKER in text:
+            text = text.split(CONTENT_MARKER, 1)[1]
+
+        sources.append({
+            "source": source,
+            "chunk": chunk,
+            "total_chunks": meta.get("total_chunks"),
+            "excerpt": text.strip(),
+        })
+        if len(sources) >= MAX_SOURCES:
+            break
+    return sources
+
+
 class LegalDocumentAssistant:
 
     def __init__(self, vectorstore):
@@ -34,7 +69,7 @@ class LegalDocumentAssistant:
         )
         self.retriever = vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 6, "fetch_k": 20, "lambda_mult": 0.7}
+            search_kwargs={"k": 10, "fetch_k": 30, "lambda_mult": 0.7}
         )
         self.chat_history = []
         self.sources_history = []
@@ -90,7 +125,7 @@ Question: {question}"""
             if not docs:
                 return "I could not find any relevant information in the indexed documents for your question.", []
 
-            sources = self._extract_sources(docs)
+            sources = extract_sources(docs)
             context = _format_docs(docs)
 
             history_text = ""
@@ -102,7 +137,7 @@ Question: {question}"""
                 ("system", """You are a precise and authoritative legal document assistant. Your answers must be grounded strictly in the provided context.
 
 STRICT RULES:
-1. ALWAYS use actual party names from the documents (e.g. "Rajnesh", "Neha"). NEVER substitute with "husband", "wife", "Applicant", "Respondent" if real names exist in the context.
+1. ALWAYS use the actual party names from the documents. NEVER substitute with generic labels such as "husband", "wife", "Applicant", "Respondent" if real names exist in the context.
 2. Each document chunk begins with a [CASE HEADER] — extract party names, case number, and court from there.
 3. For maintenance/financial questions: scan ALL chunks carefully for rupee amounts, dates, and court orders. Report every figure you find.
 4. If multiple unrelated cases appear in context, answer ONLY from the case most relevant to the question. Clearly state which case you are answering from.
@@ -137,20 +172,6 @@ Context from indexed legal documents:
         except Exception as e:
             logger.error(f"Chat error: {e}", exc_info=True)
             return "An error occurred while processing your question. Please try again.", []
-
-    def _extract_sources(self, docs) -> list[dict]:
-        """Return unique source citations (deduped by filename) for the retrieved docs."""
-        unique = {}
-        for doc in docs:
-            meta = doc.metadata or {}
-            source = meta.get("source", "Unknown document")
-            if source not in unique:
-                unique[source] = {
-                    "source": source,
-                    "chunk": meta.get("chunk"),
-                    "total_chunks": meta.get("total_chunks"),
-                }
-        return [v for v in unique.values()]
 
     def reset_conversation(self):
         self.chat_history = []

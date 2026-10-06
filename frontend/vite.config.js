@@ -11,10 +11,7 @@ export default defineConfig({
       '/session': 'http://localhost:8000',
       '/sessions': 'http://localhost:8000',
       '/sources': 'http://localhost:8000',
-      '/api/health': {
-        target: 'http://localhost:8000',
-        rewrite: () => '/'
-      }
+      '/api': 'http://localhost:8000'
     }
   }
 })

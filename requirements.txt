@@ -26,6 +26,3 @@ sentence-transformers>=2.6.0
 
 # PDF parsing
 pypdf>=4.0.0
-
-# Azure Cloud Storage (optional - for production Azure deployment)
-azure-storage-blob>=12.19.0

@@ -34,10 +34,6 @@ class Config:
     CHUNK_SIZE: int = 350
     CHUNK_OVERLAP: int = 50
     INDEX_NAME: str = "legal-rag"
-    
-    # Azure Storage configuration (optional)
-    AZURE_STORAGE_CONNECTION_STRING: str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", None)
-    AZURE_STORAGE_CONTAINER: str = os.getenv("AZURE_STORAGE_CONTAINER", "documents")
 
     def validate(self):
         if not all([self.GROQ_API_KEY, self.PINECONE_API_KEY]):

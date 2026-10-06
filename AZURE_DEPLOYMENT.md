@@ -1,270 +1,151 @@
 # Azure Deployment Guide for Juriscope
 
-This guide describes how to deploy Juriscope to Microsoft Azure using Azure App Service for the backend, Azure Static Web Apps for the frontend, and GitHub Actions for CI/CD automation.
+Juriscope runs as **one Azure App Service** (Linux, Docker). The same container serves:
 
-## Prerequisites
+- the FastAPI API (`/chat`, `/upload`, sessions, sources, `/api/health`)
+- the built React frontend (`/`)
 
-- Azure Subscription
-- GitHub repository
-- Docker Hub or Azure Container Registry (ACR) account
-- GitHub secrets configured (see section below)
-
-## Architecture
+Pinecone (vector database) and Groq (LLM) are external hosted services. The browser talks to the same origin it was loaded from, so no CORS setup is needed.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Microsoft Azure                       │
-│                                                          │
-│  ┌──────────────────┐      ┌────────────────────────┐   │
-│  │ Azure Static     │      │  Azure App Service     │   │
-│  │ Web Apps         │─────▶│  FastAPI (Docker)      │   │
-│  │ React Frontend   │HTTPS │  Port 8000             │   │
-│  └──────────────────┘      └───────┬────────────────┘   │
-│                                    │                     │
-│              ┌─────────────────────┼──────────────┐     │
-│              ▼                     ▼              ▼     │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌────────┐ │
-│  │ Azure Blob       │  │ Pinecone        │  │ Groq   │ │
-│  │ Storage          │  │ Serverless      │  │ Cloud  │ │
-│  │ (PDF files)      │  │ Vector DB       │  │ API    │ │
-│  │                  │  │ (text chunks)   │  │Llama3.3│ │
-│  └──────────────────┘  └─────────────────┘  └────────┘ │
-└─────────────────────────────────────────────────────────┘
-
-GitHub Actions → Azure Container Registry → App Service (CI/CD)
+Browser ──HTTPS──▶ Azure App Service (B1, Docker container)
+                     ├─ /            React frontend (built into the image)
+                     └─ /chat, /upload, ...  FastAPI
+                          ├─▶ Pinecone (vector index)
+                          └─▶ Groq (Llama/Qwen LLM)
 ```
 
-## Step 1: Set Up Azure Resources
+Images are pushed to Docker Hub (free) rather than Azure Container Registry, to save credits.
 
-### 1.1 Create Resource Group
+## Before you start
+
+- An Azure subscription (student or free trial) and the Azure CLI (`az`)
+- Docker Desktop, running
+- A Docker Hub account. Replace `YOUR_DOCKERHUB_USER` below with your username.
+- Your `.env` values: `GROQ_API_KEY`, `PINECONE_API_KEY`, `INDEX_NAME`
+
+## Step 1: Build and test the image locally
 
 ```bash
-az group create \
-  --name juriscope-rg \
-  --location eastus
+docker build -t YOUR_DOCKERHUB_USER/juriscope:v1 .
+docker run --rm -p 8000:8000 --env-file .env juriscope:v1
 ```
 
-### 1.2 Create Azure Container Registry (ACR)
+Open http://localhost:8000 and check that the app loads. `.env` is excluded from the image, so keys are passed in at run time and never baked in.
+
+## Step 2: Push the image to Docker Hub
 
 ```bash
-az acr create \
-  --resource-group juriscope-rg \
-  --name juriscoperegistry \
-  --sku Basic
+docker login
+docker push YOUR_DOCKERHUB_USER/juriscope:v1
 ```
 
-### 1.3 Create App Service Plan
+Make the repository **public** on Docker Hub, which lets App Service pull it without credentials. The image contains no secrets. If you prefer a private repository, add `--container-registry-user` and `--container-registry-password` to the `az webapp create` command below.
+
+## Step 3: Create the Azure resources
 
 ```bash
+az login
+az group create --name juriscope-rg --location eastus
+
 az appservice plan create \
   --name juriscope-plan \
   --resource-group juriscope-rg \
   --sku B1 \
   --is-linux
-```
 
-### 1.4 Create App Service for Backend
-
-```bash
 az webapp create \
   --resource-group juriscope-rg \
   --plan juriscope-plan \
-  --name juriscope-backend \
-  --deployment-container-image-name-user YOUR_REGISTRY.azurecr.io/juriscope-backend:latest
+  --name YOUR-UNIQUE-APP-NAME \
+  --container-image-name YOUR_DOCKERHUB_USER/juriscope:v1
 ```
 
-### 1.5 Create Static Web App for Frontend
+`YOUR-UNIQUE-APP-NAME` must be unique across all of Azure. Your site will be at `https://YOUR-UNIQUE-APP-NAME.azurewebsites.net`.
 
-```bash
-az staticwebapp create \
-  --name juriscope-frontend \
-  --resource-group juriscope-rg \
-  --source https://github.com/YOUR_GITHUB_USERNAME/juriscope.git \
-  --location eastus \
-  --branch main \
-  --app-location frontend \
-  --output-location dist
-```
+`B1` has 1.75 GB of RAM, which is the smallest paid tier that can hold the embedding model. The free `F1` tier has 1 GB and will not fit it.
 
-## Step 2: Configure GitHub Secrets
+## Step 4: Set the app settings
 
-Add the following secrets to your GitHub repository settings:
-
-```
-AZURE_REGISTRY_USERNAME=YOUR_ACR_USERNAME
-AZURE_REGISTRY_PASSWORD=YOUR_ACR_PASSWORD
-AZURE_BACKEND_APP_NAME=juriscope-backend
-AZURE_BACKEND_PUBLISH_PROFILE=<copy from App Service>
-AZURE_STATIC_WEB_APPS_API_TOKEN=<get from Static Web App>
-```
-
-### To get publish profile:
-```bash
-az webapp deployment list-publishing-profiles \
-  --resource-group juriscope-rg \
-  --name juriscope-backend \
-  --query "[0].publishUrl" --output tsv
-```
-
-### To get ACR credentials:
-```bash
-az acr credential show \
-  --resource-group juriscope-rg \
-  --name juriscoperegistry
-```
-
-## Step 3: Configure App Settings
-
-Set environment variables for App Service:
+Replace the placeholders with your real values. Do not commit these to Git.
 
 ```bash
 az webapp config appsettings set \
   --resource-group juriscope-rg \
-  --name juriscope-backend \
+  --name YOUR-UNIQUE-APP-NAME \
   --settings \
     GROQ_API_KEY="your-groq-key" \
     PINECONE_API_KEY="your-pinecone-key" \
     INDEX_NAME="legal-rag" \
     PINECONE_CLOUD="aws" \
     PINECONE_REGION="us-east-1" \
-    GROQ_MODEL="llama-3.3-70b-versatile" \
-    AZURE_STORAGE_CONNECTION_STRING="your-blob-connection-string"
+    GROQ_MODEL="qwen/qwen3.8-27b" \
+    JURISCOPE_USERNAME="choose-a-username" \
+    JURISCOPE_PASSWORD="choose-a-strong-password" \
+    WEBSITES_PORT="8000"
 ```
 
-## Step 4: Configure Container Registry Integration
+- `WEBSITES_PORT` tells App Service which port the container listens on.
+- `JURISCOPE_USERNAME` and `JURISCOPE_PASSWORD` turn on the login prompt. Turn them on for any public URL, so strangers cannot use your Groq and Pinecone quota.
 
-Enable Azure Container Registry integration with App Service:
+You can also set these in the Azure portal under **Settings → Environment variables**.
+
+## Step 5: Verify
 
 ```bash
+curl https://YOUR-UNIQUE-APP-NAME.azurewebsites.net/api/health
+```
+
+You should get `{"status":"ok", ...}`. Then open the site in a browser. With login enabled, the browser asks for the username and password first.
+
+Check the logs in the portal (**Monitoring → Log stream**), or run:
+
+```bash
+az webapp log tail --resource-group juriscope-rg --name YOUR-UNIQUE-APP-NAME
+```
+
+## Updating the app later
+
+Use a new tag each time, so App Service pulls the new image reliably:
+
+```bash
+docker build -t YOUR_DOCKERHUB_USER/juriscope:v2 .
+docker push YOUR_DOCKERHUB_USER/juriscope:v2
+
 az webapp config container set \
-  --name juriscope-backend \
   --resource-group juriscope-rg \
-  --docker-custom-image-name juriscoperegistry.azurecr.io/juriscope-backend:latest \
-  --docker-registry-server-url https://juriscoperegistry.azurecr.io \
-  --docker-registry-server-user $ACR_USERNAME \
-  --docker-registry-server-password $ACR_PASSWORD
-```
-
-## Step 5: Deploy via GitHub Actions
-
-The `.github/workflows/deploy.yml` pipeline will:
-
-1. **Test:** Run backend tests and linting
-2. **Build:** Build frontend and Docker images
-3. **Push:** Push images to Azure Container Registry
-4. **Deploy:** Deploy to App Service and Static Web Apps
-
-Just push to `main` branch:
-
-```bash
-git push origin main
-```
-
-GitHub Actions will automatically:
-- Build Docker images
-- Push to ACR
-- Deploy to Azure App Service
-- Deploy frontend to Static Web Apps
-
-## Step 6: Verify Deployment
-
-```bash
-# Check backend health
-curl https://juriscope-backend.azurewebsites.net/
-
-# Check frontend
-curl https://juriscope-frontend.azurestaticapps.net/
-
-# View logs
-az webapp log tail \
-  --resource-group juriscope-rg \
-  --name juriscope-backend
-```
-
-## Step 7: Optional - Add Azure Blob Storage
-
-For persistent PDF storage:
-
-```bash
-az storage account create \
-  --name juriscopestorage \
-  --resource-group juriscope-rg \
-  --location eastus \
-  --sku Standard_LRS
-
-# Get connection string
-az storage account show-connection-string \
-  --name juriscopestorage \
-  --resource-group juriscope-rg \
-  --query connectionString --output tsv
-```
-
-Update App Service with `AZURE_STORAGE_CONNECTION_STRING`.
-
-## Step 8: Optional - Add Application Insights
-
-```bash
-az monitor app-insights component create \
-  --app juriscope-insights \
-  --location eastus \
-  --resource-group juriscope-rg
-
-# Add instrumentation key to App Service
-az webapp config appsettings set \
-  --resource-group juriscope-rg \
-  --name juriscope-backend \
-  --settings APPINSIGHTS_INSTRUMENTATION_KEY="<key>"
+  --name YOUR-UNIQUE-APP-NAME \
+  --container-image-name YOUR_DOCKERHUB_USER/juriscope:v2
 ```
 
 ## Troubleshooting
 
-### Deployment fails - Docker image not found
-- Verify ACR has the image: `az acr repository show-tags --name juriscoperegistry --repository juriscope-backend`
-- Check ACR login in GitHub Actions secrets
+- **Site shows "Application Error" or never starts:** check the log stream. Confirm `WEBSITES_PORT=8000` is set and all three keys (`GROQ_API_KEY`, `PINECONE_API_KEY`, `INDEX_NAME`) are present.
+- **The first chat or upload is very slow:** this is expected. The embedding model (several hundred MB) downloads and loads on first use. Later requests are faster.
+- **Out of memory during an upload or chat:** the container is restarting because B1's 1.75 GB is not enough. Scale up with `az appservice plan update --name juriscope-plan --resource-group juriscope-rg --sku B2` (roughly double the price).
+- **Login prompt keeps appearing:** check that `JURISCOPE_USERNAME` and `JURISCOPE_PASSWORD` match what you type.
 
-### App Service won't start
-- Check logs: `az webapp log tail --resource-group juriscope-rg --name juriscope-backend`
-- Verify environment variables are set
-- Ensure PORT is set to 8000 in App Service configuration
+## Cost
 
-### Frontend not loading
-- Verify Static Web App deployment: Check Azure Portal → Static Web Apps → juriscope-frontend
-- Check build logs in GitHub Actions
+Prices change, so check the Azure pricing calculator before you deploy. Rough figures:
 
-## Monitoring
+- **App Service Plan (B1, 1.75 GB RAM):** about $13/month
+- **Docker Hub:** free for public images
+- **Total:** about $13/month while running
 
-Access monitoring dashboard:
+**To protect your credits, delete everything when you are not presenting:**
 
 ```bash
-# Application Insights
-az monitor app-insights app show \
-  --app juriscope-insights \
-  --resource-group juriscope-rg
+az group delete --name juriscope-rg --yes
 ```
 
-## Rollback
+Redeploying later means repeating Step 3 (or re-creating the app with the same name).
 
-To rollback to previous version:
+## Not covered by this guide
 
-```bash
-# Re-deploy from previous commit
-git revert <commit-hash>
-git push origin main
-```
+- **GitHub Actions CI/CD:** `.github/workflows/deploy.yml.disabled` still targets the old Azure Container Registry and Static Web Apps setup. It is disabled and needs rewriting before you use it.
+- **Azure Blob Storage and Application Insights:** not used by the current code.
 
-GitHub Actions will automatically deploy the previous version.
+## Verification status
 
-## Cost Estimation
-
-- **App Service Plan (B1):** ~$50/month
-- **Static Web Apps:** Free tier available ($0-15/month)
-- **Container Registry:** ~$5/month
-- **Blob Storage:** ~$0.50/month
-- **Total:** ~$55-75/month
-
-## References
-
-- [Azure App Service Documentation](https://docs.microsoft.com/en-us/azure/app-service/)
-- [Azure Static Web Apps Documentation](https://docs.microsoft.com/en-us/azure/static-web-apps/)
-- [Azure Container Registry Documentation](https://docs.microsoft.com/en-us/azure/container-registry/)
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+The commands above were checked against the installed Azure CLI's help text, and the Docker image was run and tested locally. The Azure commands themselves have not been run against a live subscription yet, so expect small adjustments on the first real deployment (for example, region or SKU availability on a student subscription).

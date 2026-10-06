@@ -1,11 +1,15 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, field_validator
 from typing import Optional
 from contextlib import asynccontextmanager
 from collections import defaultdict
-import shutil, os, tempfile, time
+from pathlib import Path
+import shutil, os, tempfile, threading, time
 
+from src.auth import get_login_credentials, is_authorized
+from src.context import case_context_prefix
 from src.session_manager import SessionManager
 
 vectorstore = None
@@ -15,6 +19,10 @@ _rate_limit_store: dict = defaultdict(list)
 MAX_FILE_SIZE_MB = 20
 RATE_LIMIT_REQUESTS = 20
 RATE_LIMIT_WINDOW_SECONDS = 60
+
+# Built React app (produced by `npm run build` in frontend/, or by the Dockerfile).
+# When it exists, the backend serves it so the UI and API share one origin.
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def _check_rate_limit(client_ip: str):
@@ -26,18 +34,25 @@ def _check_rate_limit(client_ip: str):
     _rate_limit_store[client_ip].append(now)
 
 
+_vectorstore_lock = threading.Lock()
+
+
 def _load_vectorstore():
     global vectorstore
     if vectorstore is not None:
         return vectorstore
-    try:
-        from src.vector_store import VectorStore, get_global_model_and_tokenizer
-        get_global_model_and_tokenizer()
-        vectorstore = VectorStore().load_index()
-        print("[OK] Vector store loaded")
-    except Exception as e:
-        print(f"[ERROR] Vector store failed: {e}")
-        vectorstore = None
+    # The lock stops the startup warm-up and an early request from loading the model twice.
+    with _vectorstore_lock:
+        if vectorstore is not None:
+            return vectorstore
+        try:
+            from src.vector_store import VectorStore, get_global_model_and_tokenizer
+            get_global_model_and_tokenizer()
+            vectorstore = VectorStore().load_index()
+            print("[OK] Vector store loaded")
+        except Exception as e:
+            print(f"[ERROR] Vector store failed: {e}")
+            vectorstore = None
     return vectorstore
 
 
@@ -48,17 +63,46 @@ async def lifespan(app: FastAPI):
     config.validate()
     session_manager = SessionManager(timeout_minutes=30)
     print("[OK] Session manager ready")
+    # Load the embedding model in the background so the first user does not wait for it.
+    threading.Thread(target=_load_vectorstore, name="vectorstore-warmup", daemon=True).start()
     yield
 
 
 app = FastAPI(title="Juriscope API", version="1.0.0", lifespan=lifespan)
 
+# Origins allowed to call the API from a browser. Set ALLOWED_ORIGINS (comma-separated)
+# when the frontend is hosted somewhere other than localhost.
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    # Login is only enforced when JURISCOPE_USERNAME and JURISCOPE_PASSWORD are set.
+    # The health check and CORS preflight requests stay open. The web page itself
+    # is protected, so the browser shows the login prompt before the app loads.
+    credentials = get_login_credentials()
+    is_public = (request.method == "GET" and request.url.path == "/api/health") or request.method == "OPTIONS"
+    if credentials is None or is_public:
+        return await call_next(request)
+
+    if not is_authorized(request.headers.get("authorization"), *credentials):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Login required"},
+            headers={"WWW-Authenticate": 'Basic realm="Juriscope"'},
+        )
+    return await call_next(request)
 
 
 class Query(BaseModel):
@@ -101,8 +145,8 @@ def create_chatbot():
     return LegalDocumentAssistant(get_vectorstore())
 
 
-@app.get("/")
-async def root():
+@app.get("/api/health")
+async def health():
     from src.config import config
     return {"status": "ok", "message": "Juriscope API is running", "version": "1.0.0", "model": config.GROQ_MODEL}
 
@@ -143,10 +187,11 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
     try:
         if ext == ".pdf":
             from pypdf import PdfReader
+            from src.pdf_check import readable_text
             pages = PdfReader(tmp_path).pages
-            text = "\n".join(p.extract_text() or "" for p in pages)
-            if not text.strip():
-                raise HTTPException(status_code=400, detail="Could not extract text from PDF. The file may be image-based or scanned without OCR.")
+            text = readable_text([p.extract_text() or "" for p in pages])
+            if not text:
+                raise HTTPException(status_code=400, detail="This PDF has no readable text. It looks scanned or image-based, and scanned PDFs are not supported. Please upload a text-based PDF or a .txt file.")
         else:
             with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
@@ -159,10 +204,9 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_core.documents import Document
 
-    # Prepend case header to every chunk so party names and key facts
-    # are always present regardless of which chunk is retrieved
-    case_header = text[:1200].strip()
-    header_prefix = f"[CASE HEADER]\n{case_header}\n\n[CONTENT]\n"
+    # Prepend the case header and closing section to every chunk, so party names,
+    # the bench, the date and the final order are present whichever chunk is retrieved
+    header_prefix = case_context_prefix(text)
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=300)
     chunks = splitter.split_text(text)
@@ -221,6 +265,35 @@ async def get_sources(session_id: str, sm: SessionManager = Depends(get_session_
     history = getattr(chatbot, "sources_history", [])
     unique = {s["source"]: s for s in history}
     return {"session_id": session_id, "document_references": list(unique.values())}
+
+
+def _frontend_response(full_path: str):
+    """Serve a file from the built frontend, or index.html for client-side routes."""
+    if not FRONTEND_DIST.is_dir():
+        raise HTTPException(status_code=404, detail="Frontend is not built.")
+
+    root = FRONTEND_DIST.resolve()
+    candidate = (root / full_path).resolve()
+    if full_path and candidate.is_file() and candidate.is_relative_to(root):
+        return FileResponse(candidate)
+
+    index = root / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    raise HTTPException(status_code=404, detail="Frontend is not built.")
+
+
+# Registered last so every API route above takes priority over these catch-alls.
+@app.get("/", include_in_schema=False)
+async def frontend_root():
+    return _frontend_response("")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def frontend_files(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return _frontend_response(full_path)
 
 
 if __name__ == "__main__":
