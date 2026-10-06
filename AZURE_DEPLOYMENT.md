@@ -1,5 +1,29 @@
 # Azure Deployment Guide for Juriscope
 
+## Current deployment
+
+- **Live site:** https://juriscope-praaan07.azurewebsites.net
+- **Login:** username `juriscope`. The password is in the App Service setting `JURISCOPE_PASSWORD`, not in this repository.
+- **Resource group:** `juriscope-rg` (Central India)
+- **App Service plan:** `juriscope-plan` (Linux, B1)
+- **Container registry:** `juriscopepraaan07acr` (Basic). The image is built inside Azure, so nothing is pushed from your PC.
+
+How it was deployed:
+
+```bash
+az acr create --name juriscopepraaan07acr --resource-group juriscope-rg --location centralindia --sku Basic --admin-enabled true
+az acr build --registry juriscopepraaan07acr --image juriscope:v1 --file Dockerfile .
+az webapp create --resource-group juriscope-rg --plan juriscope-plan --name juriscope-praaan07 --container-image-name juriscopepraaan07acr.azurecr.io/juriscope:v1
+az webapp config container set --resource-group juriscope-rg --name juriscope-praaan07 \
+  --container-image-name juriscopepraaan07acr.azurecr.io/juriscope:v1 \
+  --container-registry-url https://juriscopepraaan07acr.azurecr.io \
+  --container-registry-user <acr-username> --container-registry-password <acr-password>
+```
+
+Redeploy with a new tag: run `az acr build` with `--image juriscope:v2`, then `az webapp config container set` with the new image name.
+
+The sections below describe the general setup, including the Docker Hub option.
+
 Juriscope runs as **one Azure App Service** (Linux, Docker). The same container serves:
 
 - the FastAPI API (`/chat`, `/upload`, sessions, sources, `/api/health`)
